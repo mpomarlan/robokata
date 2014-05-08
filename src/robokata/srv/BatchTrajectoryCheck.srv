@@ -1,0 +1,8 @@
+int64 split_count
+int64 trajectory_count
+string[] group_name
+moveit_msgs/RobotTrajectory[] trajectories
+---
+int64 trajectory_count
+robokata/TrajectoryValidationResponse[] validation_data
+

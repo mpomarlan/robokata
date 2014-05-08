@@ -1,0 +1,6 @@
+int64 query_count
+robokata/ConfigurationQuery[] configuration_queries
+---
+int64 query_count
+robokata/ConfigurationResponse[] configuration_responses
+

@@ -1,0 +1,6 @@
+int64 query_count
+robokata/PoseQuery[] pose_queries
+---
+int64 query_count
+robokata/PoseResponse[] pose_responses
+

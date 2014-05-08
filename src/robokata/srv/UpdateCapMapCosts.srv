@@ -1,0 +1,9 @@
+int8 reset_costs
+string group_name
+int64 update_count
+robokata/CostBump[] cost_bumps
+---
+int8 done
+string group_name
+int64 update_count
+
