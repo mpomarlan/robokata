@@ -154,15 +154,7 @@ class CapMap
         {
             return costs[vertex];
         }
-        void getRobotState(int vertex, robot_state::RobotState &state) const
-        {
-            double aux[10];
-            for(int k = 0; k < joints.size(); k++)
-            {
-                aux[0] = jointAngles[vertex][k];
-                state.setJointPositions(joints[k], aux);
-            }
-        }
+        void getRobotState(int vertex, robot_state::RobotState &state) const;
 
         std::string getBaseLinkName(void) const
         {

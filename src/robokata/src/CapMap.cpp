@@ -1,5 +1,8 @@
 #include <stdio.h>
 #include <cmath>
+
+#include <robokata/moveit_wrap.h>
+
 #include <robokata/CapMap.h>
 #include <map>
 
@@ -100,7 +103,8 @@ bool robokata::CapMap::load(std::string const &fileName, std::string const &grou
     eefPoses.clear(); eefPoses.resize(stateCount);
     costs.clear(); costs.resize(stateCount); resetCosts();
 
-    Eigen::Affine3d basePose = workStateCapMap.getGlobalLinkTransform(links[0]);
+    Eigen::Affine3d basePose = MOVEIT_GETGLOBALLINKTRANSFORM(workStateCapMap, links[0]);
+
 
     for(int k = 0; k < stateCount; k++)
     {
@@ -110,9 +114,9 @@ bool robokata::CapMap::load(std::string const &fileName, std::string const &grou
         {
             fscanf(data, "%lf", aux);
             jointAngles[k][j] = (aux[0]);
-            workStateCapMap.setJointPositions(joints[j], aux);
+            MOVEIT_SETJOINTPOSITIONS(workStateCapMap, joints[j], aux);
         }
-        eefPoses[k] = basePose.inverse()*workStateCapMap.getGlobalLinkTransform(links[jointCount-1]);
+        eefPoses[k] = basePose.inverse()*MOVEIT_GETGLOBALLINKTRANSFORM(workStateCapMap, links[jointCount-1]);
     }
 
     workingPosition = eefPoses[0].translation();
@@ -121,7 +125,8 @@ bool robokata::CapMap::load(std::string const &fileName, std::string const &grou
     for(int k = 0; k < joints.size(); k++)
     {
         auxD[0] = jointAngles[0][k];
-        workingConfiguration.setJointPositions(joints[k], auxD);
+
+        MOVEIT_SETJOINTPOSITIONS(workingConfiguration, joints[k], auxD);
     }
     
     workSpaceNearQuery.clear();
@@ -264,7 +269,7 @@ void robokata::CapMap::costBump(robot_state::RobotState const&invalidJointAngles
         for(int j = 0; j < maxJ; j++)
         {
             aux[0] = jointAngles[k][j];
-            workStateCapMap.setJointPositions(joints[j], aux);
+            MOVEIT_SETJOINTPOSITIONS(workStateCapMap, joints[j], aux);
         }
         double distance = workStateQuery.distance(workStateCapMap);
         distance = distance*distance;
@@ -318,7 +323,7 @@ robokata::RegionCostDescription robokata::CapMap::getRegionCost(robot_state::Rob
     for(int k = 0; k < joints.size(); k++)
     {
         aux[0] = jointAngles[maxIndex][k];
-        maxCostState.setJointPositions(joints[k], aux);
+        MOVEIT_SETJOINTPOSITIONS(maxCostState, joints[k], aux);
     }
     retq.costCentroid = maxCostState;
 
@@ -378,7 +383,7 @@ double robokata::CapMap::jointSpaceDistance(robokata::CapMap const &obj, int a, 
         for(int k = 0; k < obj.joints.size(); k++)
         {
             aux[0] = obj.jointAngles[a][k];
-            aS.setJointPositions(obj.joints[k], aux);
+            MOVEIT_SETJOINTPOSITIONS(aS, obj.joints[k], aux);
         }
     }
     if(obj.eefPoses.size() <= b)
@@ -391,7 +396,7 @@ double robokata::CapMap::jointSpaceDistance(robokata::CapMap const &obj, int a, 
         for(int k = 0; k < obj.joints.size(); k++)
         {
             aux[0] = obj.jointAngles[b][k];
-            bS.setJointPositions(obj.joints[k], aux);
+            MOVEIT_SETJOINTPOSITIONS(bS, obj.joints[k], aux);
         }
     }
     return aS.distance(bS);
@@ -461,5 +466,16 @@ Eigen::Vector3d robokata::CapMap::varianceVector3d(std::vector<Eigen::Vector3d> 
     for(int k = 0; k < maxK; k++)
         retq += Eigen::Vector3d((data[k](0) - avg(0))*(data[k](0) - avg(0)), (data[k](1) - avg(1))*(data[k](1) - avg(1)), (data[k](2) - avg(2))*(data[k](2) - avg(2)));
     return retq/(1.0*(maxK-1));
+}
+
+
+void robokata::CapMap::getRobotState(int vertex, robot_state::RobotState &state) const
+{
+    double aux[10];
+    for(int k = 0; k < joints.size(); k++)
+    {
+        aux[0] = jointAngles[vertex][k];
+        MOVEIT_SETJOINTPOSITIONS(state, joints[k], aux);
+    }
 }
 

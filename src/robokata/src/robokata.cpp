@@ -30,6 +30,8 @@
 #include <utility>
 #include <map>
 
+#include <robokata/moveit_wrap.h>
+
 #include <robokata/CapMap.h>
 
 typedef struct
@@ -53,7 +55,7 @@ void getIntermediates(int startWaypoint, int endWaypoint, int splitCount, std::v
         intermediates[k+1] = intermediates[k] + inc;
 }
 
-bool checkTrajectorySegment(moveit::core::RobotModelConstPtr const&robotModel, robot_trajectory::RobotTrajectory const&trajectory, planning_scene::PlanningSceneConstPtr const&scene, int splitCount, int &invalidWaypoint, int startWaypoint, int endWaypoint, std::vector<std::pair<std::pair<int, int>, double> > &segments, std::vector<double> &obstacleDistances)
+bool checkTrajectorySegment(MOVEIT_ROBOTMODEL_NAMESPACE::RobotModelConstPtr const&robotModel, robot_trajectory::RobotTrajectory const&trajectory, planning_scene::PlanningSceneConstPtr const&scene, int splitCount, int &invalidWaypoint, int startWaypoint, int endWaypoint, std::vector<std::pair<std::pair<int, int>, double> > &segments, std::vector<double> &obstacleDistances)
 {
     if((endWaypoint - startWaypoint) < splitCount)
     {
@@ -116,7 +118,7 @@ bool checkTrajectorySegment(moveit::core::RobotModelConstPtr const&robotModel, r
     }
 }
 
-bool checkTrajectory(moveit::core::RobotModelConstPtr const&robotModel, robot_trajectory::RobotTrajectory const&trajectory, planning_scene::PlanningSceneConstPtr const&scene, int splitCount, int &invalidWaypoint, std::vector<double> &obstacleDistances)
+bool checkTrajectory(MOVEIT_ROBOTMODEL_NAMESPACE::RobotModelConstPtr const&robotModel, robot_trajectory::RobotTrajectory const&trajectory, planning_scene::PlanningSceneConstPtr const&scene, int splitCount, int &invalidWaypoint, std::vector<double> &obstacleDistances)
 {
     if(splitCount < 2)
         splitCount = 2;
@@ -161,7 +163,7 @@ bool checkTrajectory(moveit::core::RobotModelConstPtr const&robotModel, robot_tr
     return retq;
 }
 
-bool batchCheckTrajectory(moveit::core::RobotModelConstPtr const&robotModel, planning_scene::PlanningSceneConstPtr const&scene,
+bool batchCheckTrajectory(MOVEIT_ROBOTMODEL_NAMESPACE::RobotModelConstPtr const&robotModel, planning_scene::PlanningSceneConstPtr const&scene,
          robokata::BatchTrajectoryCheck::Request  &req,
          robokata::BatchTrajectoryCheck::Response &res)
 {
@@ -185,7 +187,7 @@ bool batchCheckTrajectory(moveit::core::RobotModelConstPtr const&robotModel, pla
   return true;
 }
 
-bool updateCapMapCosts(moveit::core::RobotModelConstPtr const&robotModel, planning_scene::PlanningSceneConstPtr const&scene, tCapMapManager &capMaps,
+bool updateCapMapCosts(MOVEIT_ROBOTMODEL_NAMESPACE::RobotModelConstPtr const&robotModel, planning_scene::PlanningSceneConstPtr const&scene, tCapMapManager &capMaps,
          robokata::UpdateCapMapCosts::Request  &req,
          robokata::UpdateCapMapCosts::Response &res)
 {
@@ -211,7 +213,7 @@ bool updateCapMapCosts(moveit::core::RobotModelConstPtr const&robotModel, planni
   return true;
 }
 
-bool capMapPoseQuery(moveit::core::RobotModelConstPtr const&robotModel, planning_scene::PlanningSceneConstPtr const&scene, tCapMapManager &capMaps,
+bool capMapPoseQuery(MOVEIT_ROBOTMODEL_NAMESPACE::RobotModelConstPtr const&robotModel, planning_scene::PlanningSceneConstPtr const&scene, tCapMapManager &capMaps,
          robokata::CapMapPoseQuery::Request  &req,
          robokata::CapMapPoseQuery::Response &res)
 {
@@ -232,7 +234,7 @@ bool capMapPoseQuery(moveit::core::RobotModelConstPtr const&robotModel, planning
     {
       robokata::CapMap &currentMap(currentMapIterator->second);
       Eigen::Affine3d eefPose;
-      Eigen::Affine3d basePose = scene->getCurrentState().getGlobalLinkTransform(currentMap.getBaseLinkName());
+      Eigen::Affine3d basePose = MOVEIT_GETGLOBALLINKTRANSFORM(scene->getCurrentState(), currentMap.getBaseLinkName());
       Eigen::Vector3d eefPointingVector, eefFacingVector;
       tf::poseMsgToEigen(req.pose_queries[k].pose, eefPose);
       eefPose = basePose.inverse()*eefPose;
@@ -279,7 +281,7 @@ bool capMapPoseQuery(moveit::core::RobotModelConstPtr const&robotModel, planning
   return true;
 }
 
-bool capMapConfigurationQuery(moveit::core::RobotModelConstPtr const&robotModel, planning_scene::PlanningSceneConstPtr const&scene, tCapMapManager &capMaps,
+bool capMapConfigurationQuery(MOVEIT_ROBOTMODEL_NAMESPACE::RobotModelConstPtr const&robotModel, planning_scene::PlanningSceneConstPtr const&scene, tCapMapManager &capMaps,
          robokata::CapMapConfigurationQuery::Request  &req,
          robokata::CapMapConfigurationQuery::Response &res)
 {
