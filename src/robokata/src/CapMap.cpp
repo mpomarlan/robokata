@@ -1,3 +1,4 @@
+#include <ros/ros.h>
 #include <stdio.h>
 #include <cmath>
 
@@ -8,9 +9,23 @@
 
 robokata::CapMap::CapMap(robot_model::RobotModelConstPtr const&robotModelInit):
     robotModel(new robot_model::RobotModel(*robotModelInit.get())),
-    workingConfiguration(robotModel)
+    groupName(""),
+    joints(),
+    links(),
+    jointAngles(),
+    eefPoses(),
+    costs(),
+    loaded(false),
+    workingPosition(),
+    workingPose(),
+    workingConfiguration(robotModel),
+    workSpaceNearQuery(),
+    orientationNearQuery(),
+    jointSpaceNearQuery()
 {
-    loaded = false;
+    workSpaceNearQuery.setDistanceFunction(boost::bind(workSpaceDistance, this, _1, _2));
+    orientationNearQuery.setDistanceFunction(boost::bind(orientationDistance, this, _1, _2));
+    jointSpaceNearQuery.setDistanceFunction(boost::bind(jointSpaceDistance, this, _1, _2));
 }
 robokata::CapMap::CapMap(CapMap const&orig):
     robotModel(new robot_model::RobotModel(*orig.robotModel.get())),
@@ -28,9 +43,21 @@ robokata::CapMap::CapMap(CapMap const&orig):
     orientationNearQuery(),
     jointSpaceNearQuery()
 {
-    workSpaceNearQuery.setDistanceFunction(boost::bind(workSpaceDistance, *this, _1, _2));
-    orientationNearQuery.setDistanceFunction(boost::bind(orientationDistance, *this, _1, _2));
-    jointSpaceNearQuery.setDistanceFunction(boost::bind(jointSpaceDistance, *this, _1, _2));
+    workSpaceNearQuery.setDistanceFunction(boost::bind(workSpaceDistance, this, _1, _2));
+    orientationNearQuery.setDistanceFunction(boost::bind(orientationDistance, this, _1, _2));
+    jointSpaceNearQuery.setDistanceFunction(boost::bind(jointSpaceDistance, this, _1, _2));
+
+    std::vector<int> aux;
+    aux.clear(); aux.reserve(eefPoses.size());
+    for(int k = 0; k < eefPoses.size(); k++)
+        aux.push_back(k);
+
+    if(aux.size())
+    {
+        workSpaceNearQuery.add(aux);
+        orientationNearQuery.add(aux);
+        jointSpaceNearQuery.add(aux);
+    }
 }
 robokata::CapMap::~CapMap()
 {
@@ -59,9 +86,12 @@ robokata::CapMap & robokata::CapMap::operator=(robokata::CapMap const &orig)
     for(int k = 0; k < eefPoses.size(); k++)
         aux.push_back(k);
 
-    workSpaceNearQuery.add(aux);
-    orientationNearQuery.add(aux);
-    jointSpaceNearQuery.add(aux);
+    if(aux.size())
+    {
+        workSpaceNearQuery.add(aux);
+        orientationNearQuery.add(aux);
+        jointSpaceNearQuery.add(aux);
+    }
 
     return(*this);
 }
@@ -75,6 +105,12 @@ robokata::CapMap & robokata::CapMap::operator=(robokata::CapMap const &orig)
 bool robokata::CapMap::load(std::string const &fileName, std::string const &groupNameIni)
 {
     FILE *data = fopen(fileName.c_str(), "rt");
+    if(!data)
+    {
+        std::string warning("File not found: ");
+        ROS_WARN((warning+fileName).c_str());
+        return false;
+    }
     groupName = groupNameIni;
     int jointCount, stateCount;
     fscanf(data, "joints %d states %d\n", &jointCount, &stateCount);
@@ -332,17 +368,17 @@ robokata::RegionCostDescription robokata::CapMap::getRegionCost(robot_state::Rob
 
 /* Distance between two 3D positions.
 */
-double robokata::CapMap::workSpaceDistance(robokata::CapMap const &obj, int a, int b)
+double robokata::CapMap::workSpaceDistance(robokata::CapMap const *obj, int a, int b)
 {
     Eigen::Vector3d aV, bV;
-    if(obj.eefPoses.size() <= a)
-        aV = obj.workingPosition;
+    if(obj->eefPoses.size() <= a)
+        aV = obj->workingPosition;
     else
-        aV = obj.eefPoses[a].translation();
-    if(obj.eefPoses.size() <= b)
-        bV = obj.workingPosition;
+        aV = obj->eefPoses[a].translation();
+    if(obj->eefPoses.size() <= b)
+        bV = obj->workingPosition;
     else
-        bV = obj.eefPoses[b].translation();
+        bV = obj->eefPoses[b].translation();
     double dx, dy, dz;
     dx = aV(0) - bV(0);
     dy = aV(1) - bV(1);
@@ -351,17 +387,17 @@ double robokata::CapMap::workSpaceDistance(robokata::CapMap const &obj, int a, i
 }
 /* Absolute value of the angle of a rotation needed to go from orientation a to orientation b.
 */
-double robokata::CapMap::orientationDistance(robokata::CapMap const &obj, int a, int b)
+double robokata::CapMap::orientationDistance(robokata::CapMap const *obj, int a, int b)
 {
     Eigen::Matrix3d aV, bV, R;
-    if(obj.eefPoses.size() <= a)
-        aV = obj.workingPose.rotation();
+    if(obj->eefPoses.size() <= a)
+        aV = obj->workingPose.rotation();
     else
-        aV = obj.eefPoses[a].rotation();
-    if(obj.eefPoses.size() <= b)
-        bV = obj.workingPose.rotation();
+        aV = obj->eefPoses[a].rotation();
+    if(obj->eefPoses.size() <= b)
+        bV = obj->workingPose.rotation();
     else
-        bV = obj.eefPoses[b].rotation();
+        bV = obj->eefPoses[b].rotation();
     R = aV*bV.transpose();
     double angle = std::acos(0.5*(R(0,0) + R(1,1) + R(2, 2) - 1.0));
     if(angle < 0.0)
@@ -370,33 +406,105 @@ double robokata::CapMap::orientationDistance(robokata::CapMap const &obj, int a,
 }
 /* Distance between joint angle values. Uses the robot model from moveit to handle angle wrap-around cases.
 */
-double robokata::CapMap::jointSpaceDistance(robokata::CapMap const &obj, int a, int b)
+double robokata::CapMap::jointSpaceDistance(robokata::CapMap const *obj, int a, int b)
 {
-    robot_state::RobotState aS(obj.robotModel), bS(obj.robotModel);
-    if(obj.eefPoses.size() <= a)
+    robot_state::RobotState aS(obj->robotModel), bS(obj->robotModel);
+    if(obj->eefPoses.size() <= a)
     {
-        aS = obj.workingConfiguration;
+        aS = obj->workingConfiguration;
     }
     else
     {
         double aux[10];
-        for(int k = 0; k < obj.joints.size(); k++)
+        for(int k = 0; k < obj->joints.size(); k++)
         {
-            aux[0] = obj.jointAngles[a][k];
-            MOVEIT_SETJOINTPOSITIONS(aS, obj.joints[k], aux);
+            aux[0] = obj->jointAngles[a][k];
+            MOVEIT_SETJOINTPOSITIONS(aS, obj->joints[k], aux);
         }
     }
-    if(obj.eefPoses.size() <= b)
+    if(obj->eefPoses.size() <= b)
     {
-        bS = obj.workingConfiguration;
+        bS = obj->workingConfiguration;
     }
     else
     {
         double aux[10];
-        for(int k = 0; k < obj.joints.size(); k++)
+        for(int k = 0; k < obj->joints.size(); k++)
         {
-            aux[0] = obj.jointAngles[b][k];
-            MOVEIT_SETJOINTPOSITIONS(bS, obj.joints[k], aux);
+            aux[0] = obj->jointAngles[b][k];
+            MOVEIT_SETJOINTPOSITIONS(bS, obj->joints[k], aux);
+        }
+    }
+    return aS.distance(bS);
+}
+
+/* Distance between two 3D positions.
+*/
+double robokata::CapMap::workSpaceODistance(int const &a, int const &b) const
+{
+    Eigen::Vector3d aV, bV;
+    if(eefPoses.size() <= a)
+        aV = workingPosition;
+    else
+        aV = eefPoses[a].translation();
+    if(eefPoses.size() <= b)
+        bV = workingPosition;
+    else
+        bV = eefPoses[b].translation();
+    double dx, dy, dz;
+    dx = aV(0) - bV(0);
+    dy = aV(1) - bV(1);
+    dz = aV(2) - bV(2);
+    return std::sqrt(dx*dx + dy*dy + dz*dz);
+}
+/* Absolute value of the angle of a rotation needed to go from orientation a to orientation b.
+*/
+double robokata::CapMap::orientationODistance(int const &a, int const &b) const
+{
+    Eigen::Matrix3d aV, bV, R;
+    if(eefPoses.size() <= a)
+        aV = workingPose.rotation();
+    else
+        aV = eefPoses[a].rotation();
+    if(eefPoses.size() <= b)
+        bV = workingPose.rotation();
+    else
+        bV = eefPoses[b].rotation();
+    R = aV*bV.transpose();
+    double angle = std::acos(0.5*(R(0,0) + R(1,1) + R(2, 2) - 1.0));
+    if(angle < 0.0)
+        angle = -angle;
+    return angle;
+}
+/* Distance between joint angle values. Uses the robot model from moveit to handle angle wrap-around cases.
+*/
+double robokata::CapMap::jointSpaceODistance(int const &a, int const &b) const
+{
+    robot_state::RobotState aS(robotModel), bS(robotModel);
+    if(eefPoses.size() <= a)
+    {
+        aS = workingConfiguration;
+    }
+    else
+    {
+        double aux[10];
+        for(int k = 0; k < joints.size(); k++)
+        {
+            aux[0] = jointAngles[a][k];
+            MOVEIT_SETJOINTPOSITIONS(aS, joints[k], aux);
+        }
+    }
+    if(eefPoses.size() <= b)
+    {
+        bS = workingConfiguration;
+    }
+    else
+    {
+        double aux[10];
+        for(int k = 0; k < joints.size(); k++)
+        {
+            aux[0] = jointAngles[b][k];
+            MOVEIT_SETJOINTPOSITIONS(bS, joints[k], aux);
         }
     }
     return aS.distance(bS);

@@ -1,4 +1,5 @@
 #include "ros/ros.h"
+#include "ros/package.h"
 #include "robokata/BatchTrajectoryCheck.h"
 #include "robokata/UpdateCapMapCosts.h"
 #include "robokata/CapMapConfigurationQuery.h"
@@ -62,11 +63,12 @@ bool checkTrajectorySegment(MOVEIT_ROBOTMODEL_NAMESPACE::RobotModelConstPtr cons
         bool retq = true;
         collision_detection::CollisionRequest collision_request;
         collision_detection::CollisionResult collision_result;
-        collision_request.distance = false;
+        collision_request.distance = true;
         for(int k = startWaypoint + 1; retq && (k < endWaypoint); k++)
         {
+            collision_result.clear();
             scene->checkCollision(collision_request, collision_result, trajectory.getWayPoint(k));
-            retq = collision_result.collision;
+            retq = (!collision_result.collision);
             obstacleDistances[k] = collision_result.distance;
             if(!retq)
                 invalidWaypoint = k;
@@ -76,6 +78,7 @@ bool checkTrajectorySegment(MOVEIT_ROBOTMODEL_NAMESPACE::RobotModelConstPtr cons
     }
     else
     {
+ROS_INFO("Checking segment (%d , %d)", startWaypoint, endWaypoint);
         std::vector<int> intermediates;
         getIntermediates(startWaypoint, endWaypoint, splitCount, intermediates);
         std::vector<std::pair<std::pair<int, int>, double> > newSegments;
@@ -86,11 +89,15 @@ bool checkTrajectorySegment(MOVEIT_ROBOTMODEL_NAMESPACE::RobotModelConstPtr cons
         collision_request.distance = true;
         for(int k = 1; retq && (k < intermediates.size()-1); k++)
         {
+ROS_INFO("    Checking waypoint %d", intermediates[k]);
+            collision_result.clear();
             scene->checkCollision(collision_request, collision_result, trajectory.getWayPoint(intermediates[k]));
-            retq = collision_result.collision;
+ROS_INFO("      collision flag %d", collision_result.collision);
+ROS_INFO("      obstacle distance %f", collision_result.distance);
+            retq = (!collision_result.collision);
+            obstacleDistances[intermediates[k]] = collision_result.distance;
             if(retq)
             {
-                obstacleDistances[intermediates[k]] = collision_result.distance;
                 newSegments[k-1].first.first = intermediates[k-1];
                 newSegments[k-1].first.second = intermediates[k];
                 newSegments[k-1].second = 0.5*(obstacleDistances[intermediates[k]] + obstacleDistances[intermediates[k-1]]);
@@ -129,22 +136,26 @@ bool checkTrajectory(MOVEIT_ROBOTMODEL_NAMESPACE::RobotModelConstPtr const&robot
     collision_detection::CollisionResult collision_result;
     collision_request.distance = true;
 
+            collision_result.clear();
     scene->checkCollision(collision_request, collision_result, trajectory.getWayPoint(0));
+    obstacleDistances[0] = collision_result.distance;
     if(collision_result.collision)
     {
+        ROS_INFO("Start waypoint in collision");
         invalidWaypoint = 0;
         return false;
     }
-    obstacleDistances[0] = collision_result.distance;
     collision_result.clear();
 
+            collision_result.clear();
     scene->checkCollision(collision_request, collision_result, trajectory.getWayPoint(N-1));
+    obstacleDistances[N-1] = collision_result.distance;
     if(collision_result.collision)
     {
+        ROS_INFO("End waypoint in collision");
         invalidWaypoint = N-1;
         return false;
     }
-    obstacleDistances[N-1] = collision_result.distance;
     collision_result.clear();
 
     std::vector<std::pair<std::pair<int, int>, double> > segments;   
@@ -168,14 +179,20 @@ bool batchCheckTrajectory(MOVEIT_ROBOTMODEL_NAMESPACE::RobotModelConstPtr const&
          robokata::BatchTrajectoryCheck::Response &res)
 {
   res.trajectory_count = req.trajectory_count;
-  int fail_index;
+  int fail_index = -1;
   std::vector<double> obstacleDistances;
   res.validation_data.resize(req.trajectory_count);
   for(int k = 0; k < req.trajectory_count; k++)
   {
+  ROS_INFO("    Init RobotTrajectory object ...");
     robot_trajectory::RobotTrajectory robotTrajectory(robotModel, req.group_name[k]);
+  ROS_INFO("                                ... done.");
+  ROS_INFO("    Set object from message ...");
     robotTrajectory.setRobotTrajectoryMsg(scene->getCurrentState(), req.trajectories[k]);
+  ROS_INFO("                            ... done.");
+  ROS_INFO("    Checking trajectory ...");
     bool is_valid = checkTrajectory(robotModel, robotTrajectory, scene, req.split_count, fail_index, obstacleDistances);
+  ROS_INFO("                        ... done.");
     res.validation_data[k].group_name = req.group_name[k];
     res.validation_data[k].is_valid = is_valid;
     res.validation_data[k].fail_index = fail_index;
@@ -318,51 +335,72 @@ int main(int argc, char **argv)
   ros::AsyncSpinner spinner(1);
   spinner.start();
 
+  ROS_INFO("Started robokata.");
+
   ros::NodeHandle node_handle;
 
   //get robot model for IK purposes
   robot_model_loader::RobotModelLoader robot_model_loader("robot_description");
-  robot_model::RobotModelPtr kinematic_model = robot_model_loader.getModel();
+  robot_model::RobotModel model_copy(*((robot_model_loader.getModel()).get()));
+
+  robot_model::RobotModelConstPtr kinematic_model(&model_copy);
 
   //planning secene monitor, then planning scene instance creation for collision checking
   boost::shared_ptr<tf::TransformListener> tf(new tf::TransformListener());
+  ROS_INFO("Got a transform listener.");
   planning_scene_monitor::PlanningSceneMonitor psm("robot_description", tf);
+  psm.startStateMonitor();
+  psm.startSceneMonitor("monitored_planning_scene");
+  ROS_INFO("Got a scene monitor.");
   //planning_scene::PlanningScene planning_scene(kinematic_model);
   //planning_scene::PlanningScene planning_scene(psm.getPlanningScene());
   planning_scene::PlanningScenePtr planning_scene(psm.getPlanningScene());
+  ROS_INFO("Created a planning scene object.");
   //planning_scene::PlanningSceneConstPtr planning_scene(psm.getPlanningScene());
 
   //publisher for visualizing plans in Rviz.
-  ros::Publisher display_publisher = node_handle.advertise<moveit_msgs::DisplayTrajectory>("/move_group/display_planned_path", 1, true);
-  moveit_msgs::DisplayTrajectory display_trajectory;
+  //ros::Publisher display_publisher = node_handle.advertise<moveit_msgs::DisplayTrajectory>("/move_group/display_planned_path", 1, true);
+  //moveit_msgs::DisplayTrajectory display_trajectory;
 
   //interfaces to move_group node
-  moveit::planning_interface::MoveGroup groupRight("right_arm");
-  moveit::planning_interface::MoveGroup groupLeft("left_arm");
+  //moveit::planning_interface::MoveGroup groupRight("right_arm");
+  //ROS_INFO("Got a MoveGroup interface for the right arm.");
+  //moveit::planning_interface::MoveGroup groupLeft("left_arm");
+  //ROS_INFO("Got a MoveGroup interface for the left arm.");
 
   robokata::CapMap leftArm(kinematic_model);
   robokata::CapMap rightArm(kinematic_model);
 
-  leftArm.load("left_arm_map.txt", "left_arm");
-  rightArm.load("right_arm_map.txt", "right_arm");
+  ROS_INFO("Loading arm cap maps ...");
+  std::string packagePath = ros::package::getPath("robokata");
+  ROS_INFO(packagePath.c_str());
+  leftArm.load(packagePath+"/dat/left_arm_map.txt", "left_arm");
+  rightArm.load(packagePath+"/dat/right_arm_map.txt", "right_arm");
+  ROS_INFO("                     ... done.");
 
   tCapMapManager capMaps;
   capMaps.capMaps.insert(std::pair<std::string, robokata::CapMap&>("left_arm", leftArm));
   capMaps.capMaps.insert(std::pair<std::string, robokata::CapMap&>("right_arm", rightArm));
 
+  ROS_INFO("Setting up services ...");
+
   ros::ServiceServer serviceBatchTracjectoryCheck = node_handle.advertiseService("BatchTrajectoryCheck", boost::function<bool(robokata::BatchTrajectoryCheck::Request  &req,
          robokata::BatchTrajectoryCheck::Response &res)>(boost::bind(batchCheckTrajectory, kinematic_model, planning_scene, _1, _2)));
+  ROS_INFO("                    ... BatchTrajectoryCheck ... ");
 
   ros::ServiceServer serviceUpdateCapMapCosts = node_handle.advertiseService("UpdateCapMapCosts", boost::function<bool(robokata::UpdateCapMapCosts::Request  &req,
          robokata::UpdateCapMapCosts::Response &res)>(boost::bind(updateCapMapCosts, kinematic_model, planning_scene, capMaps, _1, _2)));
+  ROS_INFO("                    ... UpdateCapMapCosts ... ");
 
   ros::ServiceServer serviceCapMapPoseQuery = node_handle.advertiseService("CapMapPoseQuery", boost::function<bool(robokata::CapMapPoseQuery::Request  &req,
          robokata::CapMapPoseQuery::Response &res)>(boost::bind(capMapPoseQuery, kinematic_model, planning_scene, capMaps, _1, _2)));
+  ROS_INFO("                    ... CapMapPoseQuery ... ");
 
   ros::ServiceServer serviceCapMapConfigurationQuery = node_handle.advertiseService("CapMapConfigurationQuery", boost::function<bool(robokata::CapMapConfigurationQuery::Request  &req,
          robokata::CapMapConfigurationQuery::Response &res)>(boost::bind(capMapConfigurationQuery, kinematic_model, planning_scene, capMaps, _1, _2)));
+  ROS_INFO("                    ... CapMapConfigurationQuery ... ");
 
-  ROS_INFO("Ready to add two ints.");
+  ROS_INFO("                    ... done.");
   ros::spin();
 
   return 0;

@@ -184,13 +184,23 @@ class CapMap
 
         /* Distance between two 3D positions.
         */
-        static double workSpaceDistance(CapMap const &obj, int a, int b);
+        static double workSpaceDistance(CapMap const *obj, int a, int b);
         /* Absolute value of the angle of a rotation needed to go from orientation a to orientation b.
         */
-        static double orientationDistance(CapMap const &obj, int a, int b);
+        static double orientationDistance(CapMap const *obj, int a, int b);
         /* Distance between joint angle values. Uses the robot model from moveit to handle angle wrap-around cases.
         */
-        static double jointSpaceDistance(CapMap const &obj, int a, int b);
+        static double jointSpaceDistance(CapMap const *obj, int a, int b);
+
+        /* Distance between two 3D positions.
+        */
+        double workSpaceODistance(int const &a, int const &b) const;
+        /* Absolute value of the angle of a rotation needed to go from orientation a to orientation b.
+        */
+        double orientationODistance(int const &a, int const &b) const;
+        /* Distance between joint angle values. Uses the robot model from moveit to handle angle wrap-around cases.
+        */
+        double jointSpaceODistance(int const &a, int const &b) const;
 
         static double averageDouble(std::vector<double> const &data);
         static double varianceDouble(std::vector<double> const &data);
